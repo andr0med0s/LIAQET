@@ -8,7 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Клиент для интеграции ЛИАКЭТ с локальным сервером ИИ LM Studio.
+ * Клиент интеграции ЛИАКЭТ с локальным сервером ИИ LM Studio с поддержкой диалогового режима.
  */
 public class AiClient {
     private final HttpClient httpClient;
@@ -22,51 +22,49 @@ public class AiClient {
     }
 
     /**
-     * Отправляет метрики индикаторов в локальный ИИ и возвращает торговый вердикт.
+     * Отправляет метрики индикаторов и кастомный вопрос пользователя в локальный ИИ.
      */
-    public String sendAnalysisRequest(String assetName, double stochK, double stochD, double ema, double mfi, String mfiDiv) {
+    public String sendDialogueRequest(String assetName, double stochK, double stochD, double ema, double mfi, String mfiDiv, String userQuestion) {
         try {
-            // Формируем системный промпт - жесткие правила для Hermes
-            String systemPrompt = "Ты — Квантовый Робот-Аналитик терминала ЛИАКЭТ. Твоя задача — провести экспресс-анализ индикаторов. " +
-                    "Используй стратегию Mean Reversion (возврат к среднему). Отвечай строго по делу, профессиональным языком трейдера. " +
-                    "В конце обязательно укажи четкий вердикт: ПОКУПКА, ПРОДАЖА или НАБЛЮДЕНИЕ, а также уровни Цели и Стоп-Лосса.";
+            // Системный промпт с жестким якорем для стратегии возврата к средней (Mean Reversion)
+            String systemPrompt = "Ты — Квантовый Робот-Аналитик терминала ЛИАКЭТ. Твоя задача — провести анализ индикаторов и ответить на вопрос трейдера. " +
+                    "Используй стратегию Mean Reversion (возврат к среднему). Отвечай строго по делу, профессиональным языком. " +
+                    "В конце обязательно укажи четкий торговый вердикт: BUY, SELL или НАБЛЮДЕНИЕ.";
 
-            // Формируем пользовательские данные
-            String userMessage = String.format(
-                    "Проведи технический анализ для инструмента: %s\n" +
-                            "Текущие показатели индикаторов (Таймфрейм 30м):\n" +
+            // Базовый контекст рынка, который ИИ подмешивает к твоему вопросу
+            String marketContext = String.format(
+                    "Текущий срез рынка по инструменту: %s\n" +
                             "- Stochastic %%K: %.2f | %%D: %.2f\n" +
-                            "- EMA 50 (Линия баланса): %.2f\n" +
-                            "- MFI v2 (Индекс денежного потока): %.2f\n" +
-                            "- Фрактальная Дивергенция объемов: %s\n\n" +
-                            "Выдай структурированный вердикт.",
+                            "- Скользящая средняя (Линия баланса): %.2f\n" +
+                            "- MFI v2 (Денежный поток): %.2f\n" +
+                            "- Фрактальная Дивергенция объемов: %s\n",
                     assetName, stochK, stochD, ema, mfi, mfiDiv
             );
 
-            // Собираем JSON структуру по стандарту OpenAI API
+            // Формируем финальное сообщение пользователя (Контекст + его личный вопрос)
+            String finalUserMessage = marketContext + "\n[ЗАПРОС ТРЕЙДЕРА]: " + userQuestion;
+
             JSONObject requestBody = new JSONObject();
             requestBody.put("model", "hermes-3-llama-3.1-8b-lorablated");
-            requestBody.put("temperature", 0.0); // Жесткая математическая точность без галлюцинаций
+            requestBody.put("temperature", 0.0); // Жесткая точность без галлюцинаций
 
             JSONArray messages = new JSONArray();
             messages.put(new JSONObject().put("role", "system").put("content", systemPrompt));
-            messages.put(new JSONObject().put("role", "user").put("content", userMessage));
+            messages.put(new JSONObject().put("role", "user").put("content", finalUserMessage));
             requestBody.put("messages", messages);
 
-            // Собираем HTTP запрос к LM Studio
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(apiUrl))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                     .build();
 
-            // Отправляем запрос на локальный сервер
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
                 JSONObject jsonResponse = new JSONObject(response.body());
                 JSONArray choices = jsonResponse.getJSONArray("choices");
-                return choices.getJSONObject(0).getJSONObject("message").getString("content");
+                return choices.getJSONObject(0).getJSONObject("message").getString("content").trim();
             } else {
                 return "[Ошибка ИИ] Сервер LM Studio вернул код: " + response.statusCode();
             }

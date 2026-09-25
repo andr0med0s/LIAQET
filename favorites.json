@@ -1,0 +1,20 @@
+[
+  {
+    "uid": "BBG004S684M6",
+    "ticker": "SIBN",
+    "name": "Газпром нефть",
+    "type": "share"
+  },
+  {
+    "uid": "daec8431-276f-4f46-8b89-41d030e92197",
+    "ticker": "SOH7",
+    "name": "SIBN-3.27 Газпром нефть",
+    "type": "futures"
+  },
+  {
+    "uid": "3023e309-8bde-4414-9ae5-8d6c92171ac8",
+    "ticker": "SOZ6",
+    "name": "SIBN-12.26 Газпром нефть",
+    "type": "futures"
+  }
+]

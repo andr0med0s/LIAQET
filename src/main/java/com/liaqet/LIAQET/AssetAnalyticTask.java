@@ -1,65 +1,84 @@
 package com.liaqet.LIAQET;
 
 import javafx.application.Platform;
-import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * Модернизированная управляющая задача.
- * Рассчитывает индикаторы и безопасно выводит результаты прямо на экран JavaFX UI.
+ * Комплексный диспетчер расчетов.
+ * Асинхронно собирает и рассчитывает все 7 таймфреймов для 3-х боевых групп.
  */
 public class AssetAnalyticTask implements Runnable {
     private final TInvestClient client;
     private final String assetUid;
-
-    // Ссылки на графические элементы для вывода данных
-    private final Label stochLabel;
-    private final Label emaLabel;
-    private final Label mfiLabel;
+    private final MainApp mainApp;
     private final TextArea aiArea;
 
-    public AssetAnalyticTask(String token, String assetUid, Label stochLabel, Label emaLabel, Label mfiLabel, TextArea aiArea) {
+    public AssetAnalyticTask(String token, String assetUid, MainApp mainApp, TextArea aiArea) {
         this.client = new TInvestClient(token);
         this.assetUid = assetUid;
-        this.stochLabel = stochLabel;
-        this.emaLabel = emaLabel;
-        this.mfiLabel = mfiLabel;
+        this.mainApp = mainApp;
         this.aiArea = aiArea;
     }
 
     @Override
     public void run() {
-        System.out.println("[Диспетчер] Запуск асинхронного расчета для актива: " + assetUid);
+        System.out.println("[Диспетчер] Запуск комплексного квантового расчета для: " + assetUid);
+        Instant now = Instant.now();
 
-        // Временные рамки для запроса: от 4 дней назад до текущего момента
-        Instant to = Instant.now();
-        Instant from = to.minus(4, ChronoUnit.DAYS);
+        try {
+            IndicatorPackage pack = new IndicatorPackage();
 
-        // 1. Загружаем свечи через наш рабочий сетевой шлюз
-        List<Candle> candles = client.fetchCandles(assetUid, "CANDLE_INTERVAL_30_MIN", from, to);
-        System.out.println("[Диспетчер] Загружено свечей: " + candles.size());
+            // === 1 ГРУППА: ИНВЕСТИЦИОННАЯ (Неделя, День, 4ч) ===
+            List<Candle> cWeek = client.fetchCandles(assetUid, "CANDLE_INTERVAL_WEEK", now.minus(365, ChronoUnit.DAYS), now);
+            pack.tfWeek = IndicatorsEngine.calculateStochastic533(cWeek);
+            pack.tfWeekEma = IndicatorsEngine.calculateEma(cWeek, 50);
+            pack.tfWeekMfi = IndicatorsEngine.calculateMfiDivergenceV2(cWeek, 14);
 
-        if (candles.isEmpty()) {
-            Platform.runLater(() -> aiArea.setText("Ошибка: Не удалось загрузить свечи с сервера брокера. Проверьте FIGI или токен."));
-            return;
+            List<Candle> cDay = client.fetchCandles(assetUid, "CANDLE_INTERVAL_DAY", now.minus(60, ChronoUnit.DAYS), now);
+            pack.tfDay = IndicatorsEngine.calculateStochastic533(cDay);
+            pack.tfDayEma = IndicatorsEngine.calculateEma(cDay, 50);
+            pack.tfDayMfi = IndicatorsEngine.calculateMfiDivergenceV2(cDay, 14);
+
+            List<Candle> c4h = client.fetchCandles(assetUid, "CANDLE_INTERVAL_4_HOUR", now.minus(30, ChronoUnit.DAYS), now);
+            pack.tf4h = IndicatorsEngine.calculateStochastic533(c4h);
+            pack.tf4hEma = IndicatorsEngine.calculateEma(c4h, 50);
+            pack.tf4hMfi = IndicatorsEngine.calculateMfiDivergenceV2(c4h, 14);
+
+            // === 2 ГРУППА: СРЕДНЕСРОЧНАЯ (4ч, 1ч, 30м) ===
+            // (4ч уже рассчитан выше и занесен в pack)
+            List<Candle> c1h = client.fetchCandles(assetUid, "CANDLE_INTERVAL_HOUR", now.minus(7, ChronoUnit.DAYS), now);
+            pack.tf1h = IndicatorsEngine.calculateStochastic533(c1h);
+            pack.tf1hEma = IndicatorsEngine.calculateEma(c1h, 50);
+            pack.tf1hMfi = IndicatorsEngine.calculateMfiDivergenceV2(c1h, 14);
+
+            List<Candle> c30m = client.fetchCandles(assetUid, "CANDLE_INTERVAL_30_MIN", now.minus(4, ChronoUnit.DAYS), now);
+            pack.tf30m = IndicatorsEngine.calculateStochastic533(c30m);
+            pack.tf30mEma = IndicatorsEngine.calculateEma(c30m, 50);
+            pack.tf30mMfi = IndicatorsEngine.calculateMfiDivergenceV2(c30m, 14);
+
+            // === 3 ГРУППА: СКАЛЬПЕРСКАЯ (30м, 15м, 5м) ===
+            // (30м уже рассчитан выше и занесен в pack)
+            List<Candle> c15m = client.fetchCandles(assetUid, "CANDLE_INTERVAL_15_MIN", now.minus(2, ChronoUnit.DAYS), now);
+            pack.tf15m = IndicatorsEngine.calculateStochastic533(c15m);
+            pack.tf15mEma = IndicatorsEngine.calculateEma(c15m, 50);
+            pack.tf15mMfi = IndicatorsEngine.calculateMfiDivergenceV2(c15m, 14);
+
+            List<Candle> c5m = client.fetchCandles(assetUid, "CANDLE_INTERVAL_5_MIN", now.minus(1, ChronoUnit.DAYS), now);
+            pack.tf5m = IndicatorsEngine.calculateStochastic533(c5m);
+            pack.tf5mEma = IndicatorsEngine.calculateEma(c5m, 50);
+            pack.tf5mMfi = IndicatorsEngine.calculateMfiDivergenceV2(c5m, 14);
+
+            // Безопасный проброс результатов в JavaFX UI
+            Platform.runLater(() -> {
+                mainApp.updateUiWithPackage(pack);
+                aiArea.setText("Все 3 группы таймфреймов (7 интервалов) успешно рассчитаны!\nСистема готова к запуску Робота-Аналитика.");
+            });
+
+        } catch (Exception e) {
+            Platform.runLater(() -> aiArea.setText("Критический сбой в аналитическом потоке: " + e.getMessage()));
         }
-
-        // 2. Считаем индикаторы на основе боевых данных
-        StochasticResult stoch = IndicatorsEngine.calculateStochastic(candles, 14, 3);
-        EmaResult javaEma = IndicatorsEngine.calculateEma(candles, 50);
-        MfiResult mfi = IndicatorsEngine.calculateMfi(candles, 14);
-
-        // 3. БЕЗОПАСНЫЙ ВЫВОД НА ЭКРАН через Platform.runLater()
-        Platform.runLater(() -> {
-            stochLabel.setText(String.format("Stochastic %%K: %.2f | %%D: %.2f", stoch.k(), stoch.d()));
-            emaLabel.setText(String.format("EMA 50 (Скользящая средняя): %.2f", javaEma.value()));
-            mfiLabel.setText(String.format("MFI v2 (Денежный поток): %.2f | Дивергенция: %s", mfi.value(), mfi.divergenceType()));
-            aiArea.setText("Данные успешно обновлены с реального рынка!\nСистема готова к запуску Робота-Аналитика.");
-        });
-
-        System.out.println("[Диспетчер] Графический интерфейс успешно обновлен боевыми метриками.");
     }
 }
